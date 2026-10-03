@@ -1,16 +1,21 @@
-FROM minio/minio:latest
+FROM golang:1.24-bookworm AS builder
 
-ARG TARGETARCH
-ARG RELEASE
+WORKDIR /src
 
-RUN chmod -R 777 /usr/bin
+COPY go.mod go.sum ./
+RUN go mod download
 
-COPY ./minio-${TARGETARCH}.${RELEASE} /usr/bin/minio
-COPY ./minio-${TARGETARCH}.${RELEASE}.minisig /usr/bin/minio.minisig
-COPY ./minio-${TARGETARCH}.${RELEASE}.sha256sum /usr/bin/minio.sha256sum
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/minio .
 
-COPY dockerscripts/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+FROM debian:bookworm-slim
 
-ENTRYPOINT ["/usr/bin/docker-entrypoint.sh"]
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-CMD ["minio"]
+COPY --from=builder /out/minio /usr/local/bin/minio
+
+EXPOSE 9000 9001
+
+CMD ["minio", "server", "/data", "--console-address", ":9001"]
